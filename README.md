@@ -1,13 +1,13 @@
-# March7th-pet｜粉团桌宠
+# March7th-pet｜三月七印象桌宠
 
-粉团是以《崩坏：星穹铁道》角色三月七为原型创作的 Windows 像素风二创桌宠。她可以在桌面上拖动、播放动作，也能陪你查看日期与时钟、记录三位数倒数日；还支持窗口置顶和全屏时自动隐藏。
+三月七印象桌宠是以《崩坏：星穹铁道》角色三月七为原型创作的 Windows 像素风二创桌宠。她可以在桌面上拖动、播放动作，也能陪你查看日期与时钟、记录三位数倒数日；还支持窗口置顶和全屏时自动隐藏。
 
-![粉团时钟预览](docs/clock-preview.png)
-![粉团倒数日预览](docs/countdown-preview.png)
+![三月七印象桌宠时钟预览](docs/clock-preview.png)
+![三月七印象桌宠倒数日预览](docs/countdown-preview.png)
 
 ## 下载和安装
 
-在仓库右侧 **Releases** 下载 `粉团桌宠-Windows-v1.4.1.zip`，解压后运行 `PinkPixelPet-Setup.exe` 安装；也可以直接运行 `PinkPixelPet.exe`。程序可离线使用，适用于 Windows 10/11。更新前，请先从系统托盘退出正在运行的旧版。
+在仓库右侧 **Releases** 下载 `March7th-pet-Windows-v1.4.2.zip`，解压后运行 `PinkPixelPet-Setup.exe` 安装；也可以直接运行 `PinkPixelPet.exe`。程序可离线使用，适用于 Windows 10/11。更新前，请先从系统托盘退出正在运行的旧版。
 
 GitHub 自动生成的“Source code”压缩包是源码，不是安装包。`使用说明.txt` 随下载包提供。
 
@@ -19,7 +19,7 @@ GitHub 自动生成的“Source code”压缩包是源码，不是安装包。`�
 
 ## 从源码构建
 
-本仓库包含粉团完整的源码、角色配置和动画图集，无需下载另一款桌宠。开发端需要 Windows、Python 3，以及系统的 .NET Framework 4.x 编译器。在仓库根目录运行：
+本仓库包含三月七印象桌宠完整的源码、角色配置和动画图集，无需下载另一款桌宠。开发端需要 Windows、Python 3，以及系统的 .NET Framework 4.x 编译器。在仓库根目录运行：
 
 ```powershell
 .\build.ps1 -Python 'C:\path\to\python.exe'
@@ -27,7 +27,7 @@ GitHub 自动生成的“Source code”压缩包是源码，不是安装包。`�
 
 如已设置 `PET_WORKSHOP_PYTHON`，可省略 `-Python`。构建会运行程序自检，并在 `pink-pixel-desktop` 下生成独立的安装包和便携版压缩包。下载现成安装包的用户不需要 Python。
 
-`core/` 是桌宠工坊的共用实现。本仓库保存粉团的独立源码快照；维护者在工作区修复共性问题后，用 `desktop-pet-workshop/export_pink_github.py` 更新此仓库，再重新构建粉团。粉团的安装目录、设置和运行标识为 `PinkPixelPet`。
+`core/` 是桌宠工坊的共用实现。本仓库保存三月七印象桌宠的独立源码快照；维护者在工作区修复共性问题后，用 `desktop-pet-workshop/export_pink_github.py` 更新此仓库，再重新构建三月七印象桌宠。三月七印象桌宠的安装目录、设置和运行标识为 `PinkPixelPet`。
 
 ## 说明
 

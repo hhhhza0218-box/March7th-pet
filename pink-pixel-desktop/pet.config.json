@@ -1,9 +1,10 @@
 {
   "app_id": "PinkPixelPet",
-  "display_name": "粉团桌宠",
-  "short_name": "粉团",
-  "install_title": "粉团 · 像素桌宠",
-  "version": "1.4.1.0",
+  "display_name": "三月七印象桌宠",
+  "short_name": "三月七",
+  "install_title": "三月七印象桌宠 · 像素版",
+  "package_name": "March7th-pet",
+  "version": "1.4.2.0",
   "pixel": true,
   "colors": [
     [

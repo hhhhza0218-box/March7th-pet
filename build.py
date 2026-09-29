@@ -24,6 +24,8 @@ def read_config(path):
     for key in ['display_name', 'short_name', 'install_title']:
         if not isinstance(cfg[key], str) or not cfg[key].strip() or any(c in cfg[key] for c in '\r\n\\"<>:&/|?*'):
             raise ValueError('Invalid name field: ' + key)
+    if 'package_name' in cfg and (not isinstance(cfg['package_name'], str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9-]{0,80}', cfg['package_name'])):
+        raise ValueError('Invalid package_name')
     if type(cfg['pixel']) is not bool:
         raise ValueError('pixel must be a boolean')
     if len(cfg['colors']) != 4 or any(len(rgb) != 3 or any(type(x) is not int or not 0 <= x <= 255 for x in rgb) for rgb in cfg['colors']):
@@ -74,14 +76,14 @@ def build(path, cfg, atlas_override=None):
     setup = output / (cfg['app_id'] + '-Setup.exe')
     setup.write_bytes(exe.read_bytes())
     instructions = (project / '使用说明.txt').read_text(encoding='utf-8-sig')
-    instructions += '\n\n共用核心版本\n本软件独立安装和运行，与其他角色使用不同的安装目录、进程标识和个人设置。\n置顶和全屏避让统一采用粉团已修复的实现：开启置顶及全屏自动隐藏后，前台全屏应用触发避让；退出全屏后恢复。\n真实游戏兼容性仍需实际测试。更新前请从托盘退出旧版。\n'
+    instructions += '\n\n共用核心版本\n本软件独立安装和运行，与其他角色使用不同的安装目录、进程标识和个人设置。\n开启置顶及全屏自动隐藏后，前台全屏应用触发避让；退出全屏后恢复。\n真实游戏兼容性仍需实际测试。更新前请从托盘退出旧版。\n'
     (output / '使用说明.txt').write_text(instructions, encoding='utf-8-sig')
     source_hashes = {p.name: digest(p) for p in sorted(CORE.iterdir()) if p.is_file()}
     record = dict(app_id=cfg['app_id'], version=cfg['version'], core=source_hashes,
                   config_sha256=digest(path), atlas_sha256=digest(atlas), exe_sha256=digest(exe),
                   tests='PASS', real_game_tested=False)
     (output / '版本信息.json').write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding='utf-8')
-    archive = project / (cfg['display_name'] + '-Windows-v' + version + '.zip')
+    archive = project / (cfg.get('package_name', cfg['display_name']) + '-Windows-v' + version + '.zip')
     files = [exe, setup, output / '使用说明.txt', output / '版本信息.json']
     with ZipFile(archive, 'w', ZIP_DEFLATED) as z:
         for file in files:
