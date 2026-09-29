@@ -1,0 +1,162 @@
+﻿using System;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Diagnostics;
+using System.Threading;
+using System.Windows.Forms;
+using Microsoft.Win32;
+
+[assembly: AssemblyTitle("@@DISPLAY_NAME@@")]
+[assembly: AssemblyProduct("@@APP_ID@@")]
+[assembly: AssemblyVersion("@@VERSION@@")]
+[assembly: AssemblyFileVersion("@@VERSION@@")]
+
+static class Program {
+    public static readonly string Home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "@@APP_ID@@");
+    public static readonly string Exe = Path.Combine(Home, "@@APP_ID@@.exe");
+    public static readonly string Shortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "@@DISPLAY_NAME@@.lnk");
+    public static readonly string RegKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\@@APP_ID@@";
+    [STAThread] static void Main(string[] args) {
+        Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
+        try {
+            if (Array.IndexOf(args,"--self-test") >= 0) { Pet.Test(args); return; }
+            if (Array.IndexOf(args,"--uninstall") >= 0) { Uninstall(); return; }
+            if (Path.GetFileName(Application.ExecutablePath).IndexOf("Setup",StringComparison.OrdinalIgnoreCase)>=0) { Setup(); return; }
+            bool fresh; using (Mutex mutex = new Mutex(true,"Local\\@@APP_ID@@.Desktop",out fresh)) {
+                if (!fresh) { MessageBox.Show("@@SHORT_NAME@@已经在运行。请在系统托盘中找到@@SHORT_NAME@@，右键选择“回到主屏幕”。","@@SHORT_NAME@@"); return; }
+                Application.Run(new Pet());
+            }
+        } catch(Exception ex) { if(Array.IndexOf(args,"--self-test")>=0){File.WriteAllText(args[args.Length-1],"FAIL: "+ex);Environment.ExitCode=1;}else MessageBox.Show(ex.Message,"@@SHORT_NAME@@ · 操作未完成",MessageBoxButtons.OK,MessageBoxIcon.Error); }
+    }
+    static void StopInstalled() {
+        foreach(Process p in Process.GetProcessesByName("@@APP_ID@@")) {
+            try { if(p.Id!=Process.GetCurrentProcess().Id && string.Equals(p.MainModule.FileName,Exe,StringComparison.OrdinalIgnoreCase)) { p.CloseMainWindow(); if(!p.WaitForExit(3000)) throw new IOException("请先从托盘退出@@SHORT_NAME@@，再重试。"); } }
+            finally { p.Dispose(); }
+        }
+    }
+    static void Setup() {
+        using(Form f=new Form()) {
+            f.Text="安装@@DISPLAY_NAME@@"; f.ClientSize=new Size(450,225); f.StartPosition=FormStartPosition.CenterScreen; f.FormBorderStyle=FormBorderStyle.FixedDialog; f.MaximizeBox=false;
+            Label title=new Label {Text="@@INSTALL_TITLE@@",Font=new Font("Microsoft YaHei UI",18),AutoSize=true,Location=new Point(24,24)};
+            Label info=new Label {Text="独立运行 · 离线使用 · 支持拖动\n\n安装到当前用户目录，并创建桌面快捷方式。",AutoSize=true,Location=new Point(26,80)};
+            Button install=new Button {Text="安装并启动",Location=new Point(270,164),Size=new Size(150,35)};
+            install.Click+=delegate { try { StopInstalled(); Directory.CreateDirectory(Home); File.Copy(Application.ExecutablePath,Exe,true); CreateShortcut();
+                using(RegistryKey key=Registry.CurrentUser.CreateSubKey(RegKey)) { key.SetValue("DisplayName","@@DISPLAY_NAME@@"); key.SetValue("DisplayVersion",Assembly.GetExecutingAssembly().GetName().Version.ToString(3)); key.SetValue("Publisher","@@DISPLAY_NAME@@（自定义作品）"); key.SetValue("InstallLocation",Home); key.SetValue("UninstallString","\""+Exe+"\" --uninstall"); key.SetValue("NoModify",1); key.SetValue("NoRepair",1); }
+                Process.Start(Exe); f.Close(); } catch(Exception ex) { MessageBox.Show(f,ex.Message,"安装失败"); } };
+            f.Controls.AddRange(new Control[]{title,info,install}); Application.Run(f);
+        }
+    }
+    static void CreateShortcut() {
+        Type t=Type.GetTypeFromProgID("WScript.Shell"); dynamic shell=Activator.CreateInstance(t); dynamic link=shell.CreateShortcut(Shortcut);
+        link.TargetPath=Exe; link.WorkingDirectory=Home; link.Description="@@DISPLAY_NAME@@：右键打开菜单"; link.Save(); Marshal.FinalReleaseComObject(link); Marshal.FinalReleaseComObject(shell);
+    }
+    static string Quote(string s) { return "'"+s.Replace("'","''")+"'"; }
+    static void Uninstall() {
+        if(MessageBox.Show("卸载@@DISPLAY_NAME@@和桌面快捷方式？","卸载@@SHORT_NAME@@",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;
+        StopInstalled(); Registry.CurrentUser.DeleteSubKeyTree(RegKey,false);
+        string command="$ErrorActionPreference='Stop'; Wait-Process -Id "+Process.GetCurrentProcess().Id+" -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; "+
+            "Remove-Item -LiteralPath "+Quote(Shortcut)+" -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath "+Quote(Exe)+" -Force; if (@(Get-ChildItem -LiteralPath "+Quote(Home)+" -Force).Count -eq 0) { Remove-Item -LiteralPath "+Quote(Home)+" -Force }";
+        Process.Start(new ProcessStartInfo("powershell.exe","-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand "+Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(command))) {UseShellExecute=false,CreateNoWindow=true});
+    }
+}
+
+class Pet:Form {
+    WindowPolicy windowPolicy;
+    InfoWindow info; bool moved; Point pressPoint;
+    readonly Bitmap atlas; readonly System.Windows.Forms.Timer timer=new System.Windows.Forms.Timer(); readonly Stopwatch watch=Stopwatch.StartNew();
+    readonly ContextMenuStrip menu=new ContextMenuStrip(); readonly NotifyIcon tray=new NotifyIcon(); Bitmap[,] frames=new Bitmap[11,8];
+    int row=0,frame=0; float scale=1; long next=0,actionUntil=0; bool dragging=false,following=false; Point offset,previous; int lastRow=-1,lastFrame=-1; Icon petIcon;
+    static readonly int[] Counts={6,8,8,4,5,8,6,6,6};
+    static readonly int[][] Durations={new[]{2000,110,110,140,140,320},new[]{120,120,120,120,120,120,120,220},new[]{120,120,120,120,120,120,120,220},new[]{140,140,140,280},new[]{140,140,140,140,280},new[]{140,140,140,140,140,140,140,240},new[]{150,150,150,150,150,260},new[]{120,120,120,120,120,220},new[]{150,150,150,150,150,280}};
+    readonly string settingsHome;
+    public Pet(bool testing = false, string testHome = null) {
+        settingsHome=testing ? testHome : Program.Home;
+        using(Stream s=Assembly.GetExecutingAssembly().GetManifestResourceStream("pet.png")) using(Bitmap b=new Bitmap(s)) atlas=new Bitmap(b);
+        FormBorderStyle=FormBorderStyle.None; ShowInTaskbar=false; StartPosition=FormStartPosition.Manual; ClientSize=new Size(192,208); Cursor=Cursors.Hand;
+        BuildFrames(); using(Bitmap iconFrame=new Bitmap(frames[0,0],32,32)) { IntPtr h=iconFrame.GetHicon(); petIcon=(Icon)Icon.FromHandle(h).Clone(); DestroyIcon(h); }
+        Icon=petIcon; tray.Icon=petIcon; tray.Text="@@DISPLAY_NAME@@ · 右键打开菜单"; tray.ContextMenuStrip=menu; tray.Visible=true; tray.DoubleClick+=delegate {ResetPosition();};
+        Add("挥挥手",delegate{Action(3);}); Add("跳一跳",delegate{Action(4);}); Add("伤心",delegate{Action(5);}); Add("等待",delegate{Action(6);}); Add("忙碌",delegate{Action(7);}); Add("认真观察",delegate{Action(8);}); Add("恢复待机",delegate{following=false;Action(0);});
+        ToolStripMenuItem follow=new ToolStripMenuItem("视线跟随鼠标") {CheckOnClick=true}; follow.CheckedChanged+=delegate{following=follow.Checked;Action(0);}; menu.Items.Add(follow);
+        ToolStripMenuItem sizes=new ToolStripMenuItem("大小"); foreach(float v in new[]{.75f,1f,2f}) {float chosen=v; sizes.DropDownItems.Add(v<1?"小号（144 像素）":v==1?"标准（192 像素）":"放大（384 像素）",null,delegate{scale=chosen;BuildFrames();lastRow=-1;ClampPosition();Render(0,0);});} menu.Items.Add(sizes);
+        menu.Items.Add(new ToolStripSeparator()); Add("时钟 / 倒数日",ToggleInfo); ToolStripMenuItem dates=new ToolStripMenuItem("倒数日");dates.DropDownItems.Add("名称与日期…",null,delegate{EnsureInfo();info.EditDate();});menu.Items.Add(dates); Add("回到主屏幕",ResetPosition); Add("退出",Close);
+        ToolStripMenuItem layoutMenu=new ToolStripMenuItem("信息窗口");layoutMenu.DropDownItems.Add("大小与间距…",null,delegate{EnsureInfo();info.EditLayout();});menu.Items.Insert(menu.Items.Count-2,layoutMenu);
+        windowPolicy=new WindowPolicy(this,menu,Path.Combine(settingsHome,"window-settings.txt"),testing);
+        MouseDown+=Down; MouseMove+=DragMove; MouseUp+=Up; MouseCaptureChanged+=delegate{if(!Capture){dragging=false;Action(0);}};
+        LocationChanged+=delegate{PlaceInfo();}; SizeChanged+=delegate{PlaceInfo();};
+        timer.Interval=30; timer.Tick+=Tick; Shown+=delegate{ResetPosition();Action(0);Render(0,0);timer.Start();};
+    }
+    protected override CreateParams CreateParams { get {CreateParams p=base.CreateParams;p.ExStyle|=0x80000|0x80;return p;} }
+    protected override bool ShowWithoutActivation {get{return true;}}
+    void Add(string text,System.Action a){menu.Items.Add(text,null,delegate{a();});}
+    void BuildFrames(){for(int r=0;r<11;r++)for(int c=0;c<8;c++){if(frames[r,c]!=null)frames[r,c].Dispose();Bitmap b=new Bitmap((int)(192*scale),(int)(208*scale),PixelFormat.Format32bppPArgb);using(Graphics g=Graphics.FromImage(b)){g.InterpolationMode=PetTheme.Pixel ? InterpolationMode.NearestNeighbor : InterpolationMode.HighQualityBicubic;g.PixelOffsetMode=PixelOffsetMode.Half;g.DrawImage(atlas,new Rectangle(0,0,b.Width,b.Height),new Rectangle(c*192,r*208,192,208),GraphicsUnit.Pixel);}frames[r,c]=b;} ClientSize=frames[0,0].Size;}
+    void Action(int r){row=r;frame=0;next=watch.ElapsedMilliseconds+Durations[r][0];actionUntil=r==0?0:watch.ElapsedMilliseconds+5000;lastRow=-1;}
+    void Down(object sender,MouseEventArgs e){if(e.Button==MouseButtons.Right){menu.Show(this,e.Location);return;}if(e.Button!=MouseButtons.Left)return;dragging=true;moved=false;offset=e.Location;previous=pressPoint=MousePosition;Capture=true;}
+    void DragMove(object sender,MouseEventArgs e){if(!dragging)return;Point p=MousePosition;if(!moved&&Math.Abs(p.X-pressPoint.X)<SystemInformation.DragSize.Width/2&&Math.Abs(p.Y-pressPoint.Y)<SystemInformation.DragSize.Height/2)return;moved=true;Location=new Point(p.X-offset.X,p.Y-offset.Y);int r=p.X>=previous.X?1:2;if(r!=row){row=r;frame=0;next=0;}previous=p;}
+    void Up(object sender,MouseEventArgs e){if(e.Button!=MouseButtons.Left||!dragging)return;bool click=!moved;dragging=false;Capture=false;ClampPosition();Action(0);if(click)ToggleInfo();}
+    void EnsureInfo(){if(info==null||info.IsDisposed){info=new InfoWindow(Path.Combine(settingsHome,"countdown-date.txt"));info.LayoutSettingsChanged+=delegate{PlaceInfo();};windowPolicy.AttachInfo(info);}}
+    void ToggleInfo(){EnsureInfo();PlaceInfo();windowPolicy.ToggleInfo();}
+    void PlaceInfo(){if(info==null||info.IsDisposed)return;Rectangle a=Screen.FromControl(this).WorkingArea;int x=Left-info.Width-info.Gap;if(x<a.Left)x=Right+info.Gap;int y=Top+Height/2-info.Height/2;info.Location=new Point(Math.Max(a.Left,Math.Min(x,a.Right-info.Width)),Math.Max(a.Top,Math.Min(y,a.Bottom-info.Height)));}
+    void ClampPosition(){Rectangle a=Screen.FromPoint(new Point(Left+Width/2,Top+Height/2)).WorkingArea;Location=new Point(Math.Max(a.Left,Math.Min(Left,a.Right-Width)),Math.Max(a.Top,Math.Min(Top,a.Bottom-Height)));}
+    void ResetPosition(){Rectangle a=Screen.PrimaryScreen.WorkingArea;Location=new Point(a.Right-Width-30,a.Bottom-Height-30);if(windowPolicy!=null)windowPolicy.ShowPet();else Show();}
+    static int Direction(int dx,int dy){double angle=Math.Atan2(dx,-dy)*180/Math.PI;return ((int)Math.Round((angle+360)/22.5))%16;}
+    void Tick(object sender,EventArgs e){long now=watch.ElapsedMilliseconds;if(!dragging&&actionUntil>0&&now>=actionUntil)Action(0);
+        if(following&&!dragging&&row==0){Point p=MousePosition;int dx=p.X-(Left+Width/2),dy=p.Y-(Top+Height/2);if(dx*dx+dy*dy>2500){int d=Direction(dx,dy);Render(9+d/8,d%8);return;}}
+        AdvanceAnimation(now);Render(row,frame);
+    }
+    void AdvanceAnimation(long now){if(now>=next){frame=(frame+1)%Counts[row];next=now+Durations[row][frame];}}
+    void Render(int r,int c){if(lastRow==r&&lastFrame==c)return;PaintLayer(frames[r,c]);lastRow=r;lastFrame=c;}
+    void PaintLayer(Bitmap b){IntPtr screen=GetDC(IntPtr.Zero),dc=CreateCompatibleDC(screen),hb=IntPtr.Zero,old=IntPtr.Zero;try{hb=b.GetHbitmap(Color.FromArgb(0));old=SelectObject(dc,hb);POINT dest=new POINT(Left,Top),src=new POINT(0,0);SIZE size=new SIZE(b.Width,b.Height);BLEND blend=new BLEND{Alpha=255,Format=1};if(!UpdateLayeredWindow(Handle,screen,ref dest,ref size,dc,ref src,0,ref blend,2))throw new System.ComponentModel.Win32Exception();}finally{if(old!=IntPtr.Zero)SelectObject(dc,old);if(hb!=IntPtr.Zero)DeleteObject(hb);DeleteDC(dc);ReleaseDC(IntPtr.Zero,screen);}}
+    protected override void Dispose(bool disposing){if(disposing){if(windowPolicy!=null)windowPolicy.Dispose();if(info!=null)info.Dispose();timer.Stop();timer.Dispose();tray.Visible=false;tray.Dispose();menu.Dispose();foreach(Bitmap b in frames)if(b!=null)b.Dispose();atlas.Dispose();if(petIcon!=null)petIcon.Dispose();}base.Dispose(disposing);}
+    public static void Test(string[] args) {
+        string output=args.Length>1?args[args.Length-1]:"self-test.txt";
+        using(Pet p=new Pet(true,Path.GetDirectoryName(Path.GetFullPath(output)))) {
+            if(p.atlas.Size!=new Size(1536,2288))throw new Exception("Invalid atlas");
+            if(Direction(0,-100)!=0||Direction(100,0)!=4||Direction(0,100)!=8||Direction(-100,0)!=12)throw new Exception("Invalid directions");
+            p.Show(); Application.DoEvents();
+            for(int r=0;r<11;r++)for(int c=0;c<(r<9?Counts[r]:8);c++) {
+                Bitmap b=p.frames[r,c];bool opaque=false;
+                for(int y=0;y<b.Height&&!opaque;y++)for(int x=0;x<b.Width;x++)if(b.GetPixel(x,y).A>0){opaque=true;break;}
+                if(!opaque)throw new Exception("Empty animation cell");
+                if(b.GetPixel(0,0).A!=0)throw new Exception("Opaque background");
+                p.Render(r,c);
+            }
+            p.Down(p,new MouseEventArgs(MouseButtons.Left,1,30,30,0));
+            p.DragMove(p,new MouseEventArgs(MouseButtons.Left,0,40,40,0));
+            if(!p.dragging||!p.Capture)throw new Exception("Drag capture failed");
+            p.Up(p,new MouseEventArgs(MouseButtons.Left,1,40,40,0));
+            if(p.dragging||p.Capture)throw new Exception("Drag release failed");
+            if(p.info==null||!p.info.Visible)throw new Exception("Click did not open info");
+            p.Down(p,new MouseEventArgs(MouseButtons.Left,1,30,30,0));p.Up(p,new MouseEventArgs(MouseButtons.Left,1,30,30,0));
+            if(p.info.Visible)throw new Exception("Click did not close info");
+            p.Down(p,new MouseEventArgs(MouseButtons.Left,1,30,30,0));p.pressPoint=new Point(MousePosition.X-100,MousePosition.Y);p.DragMove(p,new MouseEventArgs(MouseButtons.Left,0,40,40,0));p.Up(p,new MouseEventArgs(MouseButtons.Left,1,40,40,0));
+            if(p.info.Visible)throw new Exception("Drag incorrectly toggled info");
+            p.Action(3); p.actionUntil=1; p.Tick(p,EventArgs.Empty);
+            if(p.row!=0)throw new Exception("Action did not return to idle");
+            p.Action(0);long blinkAt=p.next;p.AdvanceAnimation(blinkAt-1);if(p.frame!=0)throw new Exception("Blink started before resting");
+            p.AdvanceAnimation(blinkAt);if(p.frame!=1)throw new Exception("Blink did not start");
+            for(int n=0;n<5;n++)p.AdvanceAnimation(p.next);if(p.frame!=0)throw new Exception("Blink did not return to open eyes");
+            long restEnd=p.next;p.AdvanceAnimation(restEnd-1);if(p.frame!=0||Durations[0][0]!=2000)throw new Exception("Rest after blink failed");
+            p.scale=.75f;p.BuildFrames();if(p.ClientSize!=new Size(144,156))throw new Exception("Small size failed");p.PaintLayer(p.frames[0,0]);p.ToggleInfo();p.PlaceInfo();if(p.info.Right>Screen.FromControl(p).WorkingArea.Right)throw new Exception("Info placement overflow");p.ToggleInfo();
+            p.scale=2;p.BuildFrames();p.PaintLayer(p.frames[10,7]);p.Close();
+        }
+        WindowPolicy.Test(Path.GetDirectoryName(Path.GetFullPath(output)));
+        InfoWindow.Test(Path.GetDirectoryName(Path.GetFullPath(output)));
+        File.WriteAllText(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(output)),"window-policy-test.txt"),"PASS: native topmost on/off for both windows; repair native topmost drift; fullscreen hide/restore both windows; preserve closed info window; persist topmost preference; fullscreen geometry on negative-coordinate monitor; reject captioned maximized and smaller windows. Real games not tested.\r\n");
+        File.WriteAllText(output,"PASS: atlas, all active frames, transparency, cardinal directions, layered rendering, drag capture/release, click open/close, drag without toggle, action timeout, 2x rendering; clock, leap day, year boundary, 0/999/1000 days, expired dates, settings round trip, double click mode switch.\r\n");
+    }
+    [StructLayout(LayoutKind.Sequential)]struct POINT{public int X,Y;public POINT(int x,int y){X=x;Y=y;}}
+    [StructLayout(LayoutKind.Sequential)]struct SIZE{public int W,H;public SIZE(int w,int h){W=w;H=h;}}
+    [StructLayout(LayoutKind.Sequential,Pack=1)]struct BLEND{public byte Op,Flags,Alpha,Format;}
+    [DllImport("user32.dll",SetLastError=true)]static extern bool UpdateLayeredWindow(IntPtr h,IntPtr dst,ref POINT p,ref SIZE s,IntPtr src,ref POINT origin,int key,ref BLEND blend,int flags);
+    [DllImport("user32.dll")]static extern IntPtr GetDC(IntPtr h);
+    [DllImport("user32.dll")]static extern int ReleaseDC(IntPtr h,IntPtr dc);
+    [DllImport("gdi32.dll")]static extern IntPtr CreateCompatibleDC(IntPtr dc);
+    [DllImport("gdi32.dll")]static extern bool DeleteDC(IntPtr dc);
+    [DllImport("gdi32.dll")]static extern IntPtr SelectObject(IntPtr dc,IntPtr obj);
+    [DllImport("gdi32.dll")]static extern bool DeleteObject(IntPtr obj);
+    [DllImport("user32.dll")]static extern bool DestroyIcon(IntPtr h);
+}

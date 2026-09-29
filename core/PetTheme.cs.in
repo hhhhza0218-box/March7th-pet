@@ -1,0 +1,10 @@
+using System.Drawing;
+using System.Drawing.Drawing2D;
+static class PetTheme {
+    public static readonly bool Pixel=@@PIXEL@@;
+    public static readonly Color Ink=Color.FromArgb(@@INK@@);
+    public static readonly Color Panel=Color.FromArgb(@@PANEL@@);
+    public static readonly Color Accent=Color.FromArgb(@@ACCENT@@);
+    public static readonly Color Paper=Color.FromArgb(@@PAPER@@);
+    public static GraphicsPath Shape(){if(Pixel){GraphicsPath p=new GraphicsPath();p.AddPolygon(new[]{new Point(12,0),new Point(300,0),new Point(300,6),new Point(306,6),new Point(306,12),new Point(312,12),new Point(312,164),new Point(306,164),new Point(306,170),new Point(300,170),new Point(300,176),new Point(12,176),new Point(12,170),new Point(6,170),new Point(6,164),new Point(0,164),new Point(0,12),new Point(6,12),new Point(6,6),new Point(12,6)});return p;}else{GraphicsPath p=new GraphicsPath();p.AddArc(2,2,32,32,180,90);p.AddArc(278,2,32,32,270,90);p.AddArc(278,142,32,32,0,90);p.AddArc(2,142,32,32,90,90);p.CloseFigure();return p;}}
+}

@@ -1,0 +1,31 @@
+{
+  "app_id": "PinkPixelPet",
+  "display_name": "粉团桌宠",
+  "short_name": "粉团",
+  "install_title": "粉团 · 像素桌宠",
+  "version": "1.4.1.0",
+  "pixel": true,
+  "colors": [
+    [
+      29,
+      32,
+      71
+    ],
+    [
+      250,
+      217,
+      232
+    ],
+    [
+      152,
+      225,
+      239
+    ],
+    [
+      255,
+      249,
+      251
+    ]
+  ],
+  "atlas": "assets/final/spritesheet-extended.png"
+}

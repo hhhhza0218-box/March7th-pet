@@ -1,0 +1,6 @@
+build/
+last-build.json
+pink-pixel-desktop/release-v*/
+pink-pixel-desktop/*-Windows-v*.zip
+__pycache__/
+*.pyc
