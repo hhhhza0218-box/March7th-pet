@@ -4,7 +4,7 @@
   "short_name": "三月七",
   "install_title": "三月七印象桌宠 · 像素版",
   "package_name": "March7th-pet",
-  "version": "1.5.0.0",
+  "version": "0.5.0.0",
   "random_actions": true,
   "single_click_random_action": true,
   "camera_strip": "assets/final/camera-pose-strip-v1.png",

@@ -1,4 +1,4 @@
-﻿三月七印象桌宠 1.5.0 · Windows 独立版
+﻿三月七印象桌宠 0.5.0 · Windows 独立版
 
 安装：解压后双击 PinkPixelPet-Setup.exe，再点“安装并启动”。
 免安装：双击 PinkPixelPet.exe。两种方式任选一种，不要同时运行。
