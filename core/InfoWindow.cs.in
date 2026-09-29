@@ -8,17 +8,19 @@ using System.Windows.Forms;
 
 class InfoWindow : Form {
     static readonly Color Ink=PetTheme.Ink, Pink=PetTheme.Panel, Blue=PetTheme.Accent, Paper=PetTheme.Paper;
-    readonly Timer timer=new Timer(); readonly string settings; DateTime? target; bool countdown; DateTime displayedSecond;
+    readonly Timer timer=new Timer(); readonly string settings; DateTime? target; bool countdown; DateTime displayedSecond; DateTime hourStarted=DateTime.MinValue;
     string eventName; readonly ContextMenuStrip options=new ContextMenuStrip();
-    int zoom=100; public int Gap {get;private set;} public event EventHandler LayoutSettingsChanged;
+    int zoom=100; public int Gap {get;private set;} public int Side {get;private set;} public bool IsClock {get{return !countdown;}} public event EventHandler LayoutSettingsChanged;
     string LayoutPath {get{return settings+".layout";}}
+    string ModePath {get{return settings+".mode";}}
+    static readonly string[] SideNames={"左侧","右侧","上方","下方"};
     static readonly string[] Week={"星期日","星期一","星期二","星期三","星期四","星期五","星期六"};
     static readonly string[] Digits={"111101101101111","010110010010111","111001111100111","111001111001111","101101111001001","111100111001111","111100111101111","111001001001001","111101111101111","111101111001111"};
     public InfoWindow(string path){
-        settings=path;target=LoadDate(path);eventName=LoadName(path);Text="@@SHORT_NAME@@ · 时钟与倒数日";FormBorderStyle=FormBorderStyle.None;ClientSize=new Size(312,176);ShowInTaskbar=false;TopMost=false;StartPosition=FormStartPosition.Manual;BackColor=Paper;
+        settings=path;target=LoadDate(path);eventName=LoadName(path);countdown=LoadMode();Text="@@SHORT_NAME@@ · 时钟与倒数日";FormBorderStyle=FormBorderStyle.None;ClientSize=new Size(312,176);ShowInTaskbar=false;TopMost=false;StartPosition=FormStartPosition.Manual;BackColor=Paper;
         SetStyle(ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer|ControlStyles.StandardDoubleClick,true);
         Gap=12;LoadLayout();ApplyLayout();
-        timer.Interval=100;timer.Tick+=delegate{DateTime n=DateTime.Now;if(n.Ticks/TimeSpan.TicksPerSecond!=displayedSecond.Ticks/TimeSpan.TicksPerSecond){displayedSecond=n;Invalidate();}};
+        timer.Interval=100;timer.Tick+=delegate{DateTime n=DateTime.Now;if(n.Ticks/TimeSpan.TicksPerSecond!=displayedSecond.Ticks/TimeSpan.TicksPerSecond||n-hourStarted<TimeSpan.FromMilliseconds(1500)){displayedSecond=n;Invalidate();}};
         VisibleChanged+=delegate{if(Visible){displayedSecond=DateTime.Now;timer.Start();Invalidate();}else timer.Stop();};
         MouseDoubleClick+=delegate(object s,MouseEventArgs e){if(e.Button==MouseButtons.Left)SwitchMode();};
         ToolStripMenuItem sub=new ToolStripMenuItem("倒数日");sub.DropDownItems.Add("名称与日期…",null,delegate{EditDate();});options.Items.Add(sub);ContextMenuStrip=options;
@@ -28,17 +30,21 @@ class InfoWindow : Form {
     protected override bool ShowWithoutActivation{get{return true;}}
     protected override CreateParams CreateParams{get{CreateParams p=base.CreateParams;p.ExStyle|=0x80;return p;}}
     static GraphicsPath Shape(){return PetTheme.Shape();}
-    void SwitchMode(){countdown=!countdown;Invalidate();}
-    void LoadLayout(){try{if(!File.Exists(LayoutPath))return;string[] s=File.ReadAllLines(LayoutPath);int z,d;if(s.Length==2&&int.TryParse(s[0],out z)&&int.TryParse(s[1],out d)&&z>=75&&z<=200&&d>=0&&d<=300){zoom=z;Gap=d;}}catch(IOException){}catch(UnauthorizedAccessException){}}
+    void SwitchMode(){countdown=!countdown;SaveMode();Invalidate();}
+    bool LoadMode(){try{return File.Exists(ModePath)&&File.ReadAllText(ModePath).Trim().Equals("countdown",StringComparison.OrdinalIgnoreCase);}catch(IOException){return false;}catch(UnauthorizedAccessException){return false;}}
+    void SaveMode(){try{Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(ModePath)));File.WriteAllText(ModePath,countdown?"countdown":"clock");}catch(IOException){}catch(UnauthorizedAccessException){}}
+    public void StartHourlyAnimation(DateTime now){if(!IsClock||!Visible)return;hourStarted=now;Invalidate();}
+    void LoadLayout(){try{if(!File.Exists(LayoutPath))return;string[] s=File.ReadAllLines(LayoutPath);int z,d,side;if(s.Length>=2&&int.TryParse(s[0],out z)&&int.TryParse(s[1],out d)&&z>=50&&z<=200&&d>=0&&d<=300){zoom=Math.Min(125,z);Gap=d;}if(s.Length>=3&&int.TryParse(s[2],out side)&&side>=0&&side<4)Side=side;}catch(IOException){}catch(UnauthorizedAccessException){}}
     void ApplyLayout(){ClientSize=new Size((int)Math.Round(312*zoom/100.0),(int)Math.Round(176*zoom/100.0));using(GraphicsPath shape=Shape())using(Matrix m=new Matrix()){m.Scale(ClientSize.Width/312f,ClientSize.Height/176f);shape.Transform(m);Region old=Region;Region=new Region(shape);if(old!=null)old.Dispose();}Invalidate();if(LayoutSettingsChanged!=null)LayoutSettingsChanged(this,EventArgs.Empty);}
     public void EditLayout(){using(Form d=new Form()){
-        d.Text="信息窗口 · 大小与间距";d.ClientSize=new Size(350,234);d.StartPosition=FormStartPosition.CenterScreen;d.FormBorderStyle=FormBorderStyle.FixedDialog;d.MaximizeBox=false;d.MinimizeBox=false;d.TopMost=TopMost;d.BackColor=Paper;d.Font=new Font("Microsoft YaHei UI",10);
-        Label sizeLabel=new Label{Text="窗口大小（%）",Location=new Point(20,26),AutoSize=true};NumericUpDown size=new NumericUpDown{Minimum=75,Maximum=200,Increment=5,Value=zoom,Location=new Point(204,22),Width=120};
-        Label gapLabel=new Label{Text="距桌宠间距（像素）",Location=new Point(20,74),AutoSize=true};NumericUpDown gap=new NumericUpDown{Minimum=0,Maximum=300,Increment=4,Value=Gap,Location=new Point(204,70),Width=120};
-        Label hint=new Label{Text="等比例缩放文字和边框。\n靠近屏幕边缘时，优先保证窗口可见。",Location=new Point(20,117),AutoSize=true};
-        Button save=new Button{Text="保存",Location=new Point(220,182),Size=new Size(104,32),BackColor=Pink};Button cancel=new Button{Text="取消",Location=new Point(108,182),Size=new Size(96,32),DialogResult=DialogResult.Cancel};
-        save.Click+=delegate{try{Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(LayoutPath)));File.WriteAllLines(LayoutPath,new[]{size.Value.ToString(CultureInfo.InvariantCulture),gap.Value.ToString(CultureInfo.InvariantCulture)});zoom=(int)size.Value;Gap=(int)gap.Value;ApplyLayout();d.DialogResult=DialogResult.OK;}catch(Exception ex){MessageBox.Show(d,"设置未保存："+ex.Message);}};
-        d.Controls.AddRange(new Control[]{sizeLabel,size,gapLabel,gap,hint,save,cancel});d.AcceptButton=save;d.CancelButton=cancel;d.ShowDialog(this);
+        d.Text="信息窗口 · 大小、位置与间距";d.ClientSize=new Size(350,280);d.StartPosition=FormStartPosition.CenterScreen;d.FormBorderStyle=FormBorderStyle.FixedDialog;d.MaximizeBox=false;d.MinimizeBox=false;d.TopMost=TopMost;d.BackColor=Paper;d.Font=new Font("Microsoft YaHei UI",10);
+        Label sizeLabel=new Label{Text="窗口大小（%）",Location=new Point(20,24),AutoSize=true};NumericUpDown size=new NumericUpDown{Minimum=50,Maximum=125,Increment=5,Value=zoom,Location=new Point(204,20),Width=120};
+        Label gapLabel=new Label{Text="距桌宠间距（像素）",Location=new Point(20,69),AutoSize=true};NumericUpDown gap=new NumericUpDown{Minimum=0,Maximum=300,Increment=4,Value=Gap,Location=new Point(204,65),Width=120};
+        Label sideLabel=new Label{Text="窗口所在方向",Location=new Point(20,114),AutoSize=true};ComboBox side=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Location=new Point(204,110),Width=120};side.Items.AddRange(SideNames);side.SelectedIndex=Side;
+        Label hint=new Label{Text="等比例缩放文字和边框。\n靠近屏幕边缘时，优先保证窗口可见。",Location=new Point(20,158),AutoSize=true};
+        Button save=new Button{Text="保存",Location=new Point(220,226),Size=new Size(104,32),BackColor=Pink};Button cancel=new Button{Text="取消",Location=new Point(108,226),Size=new Size(96,32),DialogResult=DialogResult.Cancel};
+        save.Click+=delegate{try{Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(LayoutPath)));File.WriteAllLines(LayoutPath,new[]{size.Value.ToString(CultureInfo.InvariantCulture),gap.Value.ToString(CultureInfo.InvariantCulture),side.SelectedIndex.ToString(CultureInfo.InvariantCulture)});zoom=(int)size.Value;Gap=(int)gap.Value;Side=side.SelectedIndex;ApplyLayout();d.DialogResult=DialogResult.OK;}catch(Exception ex){MessageBox.Show(d,"设置未保存："+ex.Message);}};
+        d.Controls.AddRange(new Control[]{sizeLabel,size,gapLabel,gap,sideLabel,side,hint,save,cancel});d.AcceptButton=save;d.CancelButton=cancel;d.ShowDialog(this);
     }}
     public static int RawDays(DateTime date,DateTime today){return (date.Date-today.Date).Days;}
     public static bool ValidDate(DateTime date,DateTime today){int n=RawDays(date,today);return n>=0&&n<=999;}
@@ -56,7 +62,7 @@ class InfoWindow : Form {
         Label help=new Label{Text="支持今天至未来 999 天；到期显示 000。",AutoSize=true,Location=new Point(20,164),ForeColor=Ink};
         Button save=new Button{Text="保存",Location=new Point(216,218),Size=new Size(110,32),BackColor=Pink,FlatStyle=FlatStyle.Flat};
         Button cancel=new Button{Text="取消",Location=new Point(112,218),Size=new Size(90,32),DialogResult=DialogResult.Cancel,FlatStyle=FlatStyle.Flat};
-        save.Click+=delegate{if(string.IsNullOrWhiteSpace(name.Text)){MessageBox.Show(dialog,"请填写倒数日名称。");name.Focus();return;}if(!ValidDate(picker.Value,DateTime.Today)){MessageBox.Show(dialog,"请选择今天至未来 999 天内的日期。");return;}try{SaveDate(settings,picker.Value.Date,name.Text);eventName=name.Text.Trim();target=picker.Value.Date;countdown=true;Invalidate();dialog.DialogResult=DialogResult.OK;}catch(Exception ex){MessageBox.Show(dialog,"设置未保存："+ex.Message);}};
+        save.Click+=delegate{if(string.IsNullOrWhiteSpace(name.Text)){MessageBox.Show(dialog,"请填写倒数日名称。");name.Focus();return;}if(!ValidDate(picker.Value,DateTime.Today)){MessageBox.Show(dialog,"请选择今天至未来 999 天内的日期。");return;}try{SaveDate(settings,picker.Value.Date,name.Text);eventName=name.Text.Trim();target=picker.Value.Date;countdown=true;SaveMode();Invalidate();dialog.DialogResult=DialogResult.OK;}catch(Exception ex){MessageBox.Show(dialog,"设置未保存："+ex.Message);}};
         dialog.Controls.AddRange(new Control[]{caption,name,dateLabel,picker,help,save,cancel});dialog.AcceptButton=save;dialog.CancelButton=cancel;dialog.ShowDialog(this);
     }}
     static void TextAt(Graphics g,string text,float size,Rectangle box,Color color){using(Font f=new Font("Microsoft YaHei UI",size,FontStyle.Regular,GraphicsUnit.Pixel))using(Brush b=new SolidBrush(color))using(StringFormat sf=new StringFormat{Alignment=StringAlignment.Center,LineAlignment=StringAlignment.Center,Trimming=StringTrimming.EllipsisCharacter,FormatFlags=StringFormatFlags.NoWrap})g.DrawString(text,f,b,box,sf);}
@@ -71,23 +77,31 @@ class InfoWindow : Form {
         if(!countdown){TextAt(g,now.ToString("yyyy.MM.dd",CultureInfo.InvariantCulture)+"  "+Week[(int)now.DayOfWeek],16,new Rectangle(12,63,288,24),Ink);Number(g,now.ToString("HH:mm:ss",CultureInfo.InvariantCulture),true);}
         else if(!target.HasValue){TextAt(g,"尚未设置",18,new Rectangle(12,87,288,32),Ink);}
         else {int days=RawDays(target.Value,now);TextAt(g,target.Value.ToString("yyyy.MM.dd",CultureInfo.InvariantCulture)+(days<0?" · 已到期":days==0?" · 就是今天":" · 还有"),16,new Rectangle(12,61,288,28),Ink);Number(g,CountText(target.Value,now),false);TextAt(g,"天",14,new Rectangle(218,119,25,24),Ink);}
+        if(!countdown)DrawHourEffect(g,now);
+    }
+    void DrawHourEffect(Graphics g,DateTime now){double elapsed=(now-hourStarted).TotalMilliseconds;if(elapsed<0||elapsed>=1500)return;
+        if(elapsed<480){int alpha=(int)(205*(1-elapsed/480));using(Brush flash=new SolidBrush(Color.FromArgb(Math.Max(0,alpha),Paper)))g.FillRectangle(flash,8,8,296,160);}
+        if(elapsed>=250&&elapsed<1450){using(Brush shadow=new SolidBrush(Blue))using(Brush fill=new SolidBrush(Pink))using(Pen pen=new Pen(Ink,PetTheme.Pixel?3:2)){g.FillRectangle(shadow,90,18,136,36);g.FillRectangle(fill,86,14,136,36);g.DrawRectangle(pen,86,14,136,36);}TextAt(g,"整点啦 ✦",17,new Rectangle(88,17,132,29),Ink);}
     }
     protected override void Dispose(bool disposing){if(disposing){timer.Dispose();options.Dispose();}base.Dispose(disposing);}
     public static void Test(string directory){DateTime today=new DateTime(2026,9,9);
         if(!ValidDate(today,today)||!ValidDate(today.AddDays(999),today)||ValidDate(today.AddDays(1000),today)||ValidDate(today.AddDays(-1),today))throw new Exception("Countdown range failed");
         if(CountText(today,today)!="000"||CountText(today.AddDays(999),today)!="999"||CountText(today.AddDays(-1),today)!="000")throw new Exception("Countdown digits failed");
         if(RawDays(new DateTime(2028,3,1),new DateTime(2028,2,28))!=2||RawDays(new DateTime(2027,1,1),new DateTime(2026,12,31))!=1)throw new Exception("Calendar day calculation failed");
-        string path=Path.Combine(directory,"test-countdown-date.txt");File.WriteAllText(path,"2026-09-09");if(LoadDate(path)!=today||LoadName(path)!="倒数日")throw new Exception("Legacy settings failed");SaveDate(path,today.AddDays(99),"生日快乐");if(LoadDate(path)!=today.AddDays(99)||LoadName(path)!="生日快乐")throw new Exception("Date/name persistence failed");
+        string path=Path.Combine(directory,"test-countdown-date.txt");File.WriteAllText(path,"2026-09-09");File.WriteAllText(path+".mode","clock");if(LoadDate(path)!=today||LoadName(path)!="倒数日")throw new Exception("Legacy settings failed");SaveDate(path,today.AddDays(99),"生日快乐");if(LoadDate(path)!=today.AddDays(99)||LoadName(path)!="生日快乐")throw new Exception("Date/name persistence failed");
         using(InfoWindow f=new InfoWindow(path))using(Bitmap b=new Bitmap(312,176))using(Graphics g=Graphics.FromImage(b)){
             if(((ToolStripMenuItem)f.options.Items[0]).DropDownItems.Count!=1)throw new Exception("Submenu missing");
             f.DrawCard(g,new DateTime(2026,9,9,23,59,59));b.Save(Path.Combine(directory,"clock-preview.png"));
             f.OnMouseDoubleClick(new MouseEventArgs(MouseButtons.Left,2,120,110,0));if(!f.countdown)throw new Exception("Mode switch failed");
             f.DrawCard(g,today);b.Save(Path.Combine(directory,"countdown-preview.png"));
             f.OnMouseDoubleClick(new MouseEventArgs(MouseButtons.Left,2,120,110,0));if(f.countdown)throw new Exception("Mode switch back failed");
-            File.WriteAllLines(f.LayoutPath,new[]{"150","48"});f.LoadLayout();f.ApplyLayout();if(f.ClientSize!=new Size(468,264)||f.Gap!=48)throw new Exception("Layout persistence/scale failed");
-            using(InfoWindow reload=new InfoWindow(path)){if(reload.zoom!=150||reload.Gap!=48)throw new Exception("Layout reload failed");}
+            DateTime noon=new DateTime(2026,9,9,12,0,0);f.hourStarted=noon;f.DrawCard(g,noon.AddMilliseconds(700));b.Save(Path.Combine(directory,"hourly-preview.png"));f.hourStarted=DateTime.MinValue;
+            File.WriteAllLines(f.LayoutPath,new[]{"125","48","3"});f.LoadLayout();f.ApplyLayout();if(f.ClientSize!=new Size(390,220)||f.Gap!=48||f.Side!=3)throw new Exception("Layout persistence/scale failed");
+            using(InfoWindow reload=new InfoWindow(path)){if(reload.zoom!=125||reload.Gap!=48||reload.Side!=3)throw new Exception("Layout reload failed");}
             using(Bitmap scaled=new Bitmap(f.Width,f.Height)){f.DrawToBitmap(scaled,new Rectangle(Point.Empty,scaled.Size));scaled.Save(Path.Combine(directory,"clock-large-preview.png"));}
-            foreach(int z in new[]{75,200}){f.zoom=z;f.ApplyLayout();if(f.Width!=(int)Math.Round(312*z/100.0))throw new Exception("Scale boundary failed");}
+            foreach(int z in new[]{50,125}){f.zoom=z;f.ApplyLayout();if(f.Width!=(int)Math.Round(312*z/100.0))throw new Exception("Scale boundary failed");}
+            File.WriteAllLines(f.LayoutPath,new[]{"200","12"});f.LoadLayout();if(f.zoom!=125)throw new Exception("Legacy zoom migration failed");
+            f.SwitchMode();using(InfoWindow reload=new InfoWindow(path)){if(!reload.countdown)throw new Exception("Mode persistence failed");}f.SwitchMode();
             File.WriteAllLines(f.LayoutPath,new[]{"100","12"});
         }
     }

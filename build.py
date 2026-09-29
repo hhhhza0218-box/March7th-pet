@@ -28,6 +28,14 @@ def read_config(path):
         raise ValueError('Invalid package_name')
     if type(cfg['pixel']) is not bool:
         raise ValueError('pixel must be a boolean')
+    if type(cfg.get('random_actions', False)) is not bool:
+        raise ValueError('random_actions must be a boolean')
+    if type(cfg.get('single_click_random_action', False)) is not bool:
+        raise ValueError('single_click_random_action must be a boolean')
+    if cfg.get('single_click_random_action', False) and not cfg.get('random_actions', False):
+        raise ValueError('single_click_random_action requires random_actions')
+    if 'camera_strip' in cfg and (not isinstance(cfg['camera_strip'], str) or not cfg['camera_strip'].strip()):
+        raise ValueError('camera_strip must be a path')
     if len(cfg['colors']) != 4 or any(len(rgb) != 3 or any(type(x) is not int or not 0 <= x <= 255 for x in rgb) for rgb in cfg['colors']):
         raise ValueError('colors must contain four RGB triplets')
     return cfg
@@ -41,6 +49,12 @@ def build(path, cfg, atlas_override=None):
         header = f.read(24)
     if header[:8] != b'\x89PNG\r\n\x1a\n' or struct.unpack('>II', header[16:24]) != (1536, 2288):
         raise ValueError('Expected a validated 1536x2288 PNG atlas: ' + str(atlas))
+    camera = (project / cfg['camera_strip']).resolve() if cfg.get('camera_strip') else None
+    if camera:
+        with camera.open('rb') as f:
+            camera_header = f.read(24)
+        if camera_header[:8] != b'\x89PNG\r\n\x1a\n' or struct.unpack('>II', camera_header[16:24]) != (2172, 724):
+            raise ValueError('Expected the approved six-frame camera strip: ' + str(camera))
     validation = project / 'assets/final/validation-extended.json'
     if validation.exists() and not json.loads(validation.read_text(encoding='utf-8-sig')).get('ok'):
         raise ValueError('Artwork validation failed')
@@ -52,6 +66,9 @@ def build(path, cfg, atlas_override=None):
     qa.mkdir(parents=True, exist_ok=True)
     tokens = {key.upper(): str(value) for key, value in cfg.items() if isinstance(value, str)}
     tokens['PIXEL'] = str(cfg['pixel']).lower()
+    tokens['CAMERA_ENABLED'] = str(camera is not None).lower()
+    tokens['RANDOM_ENABLED'] = str(cfg.get('random_actions', False)).lower()
+    tokens['CLICK_RANDOM_ENABLED'] = str(cfg.get('single_click_random_action', False)).lower()
     for key, value in zip(['INK', 'PANEL', 'ACCENT', 'PAPER'], cfg['colors']):
         tokens[key] = ','.join(map(str, value))
     for template in sorted(CORE.glob('*.in')):
@@ -63,6 +80,8 @@ def build(path, cfg, atlas_override=None):
     cmd = [str(compiler), '/nologo', '/target:winexe', '/platform:anycpu', '/optimize+', '/out:' + str(exe),
            '/reference:System.Drawing.dll', '/reference:System.Windows.Forms.dll', '/reference:Microsoft.CSharp.dll',
            '/resource:' + str(atlas) + ',pet.png', '/win32manifest:' + str(generated / 'app.manifest')]
+    if camera:
+        cmd.append('/resource:' + str(camera) + ',camera.png')
     cmd += [str(generated / name) for name in ['Pet.cs', 'InfoWindow.cs', 'PetTheme.cs']]
     cmd += [str(CORE / 'WindowPolicy.cs')]
     subprocess.run(cmd, check=True)
@@ -78,13 +97,20 @@ def build(path, cfg, atlas_override=None):
     instructions = (project / '使用说明.txt').read_text(encoding='utf-8-sig')
     instructions += '\n\n共用核心版本\n本软件独立安装和运行，与其他角色使用不同的安装目录、进程标识和个人设置。\n开启置顶及全屏自动隐藏后，前台全屏应用触发避让；退出全屏后恢复。\n真实游戏兼容性仍需实际测试。更新前请从托盘退出旧版。\n'
     (output / '使用说明.txt').write_text(instructions, encoding='utf-8-sig')
+    update_notes = project / '更新说明.txt'
+    if update_notes.exists():
+        (output / '更新说明.txt').write_text(update_notes.read_text(encoding='utf-8-sig'), encoding='utf-8-sig')
     source_hashes = {p.name: digest(p) for p in sorted(CORE.iterdir()) if p.is_file()}
     record = dict(app_id=cfg['app_id'], version=cfg['version'], core=source_hashes,
                   config_sha256=digest(path), atlas_sha256=digest(atlas), exe_sha256=digest(exe),
                   tests='PASS', real_game_tested=False)
+    if camera:
+        record['camera_sha256'] = digest(camera)
     (output / '版本信息.json').write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding='utf-8')
     archive = project / (cfg.get('package_name', cfg['display_name']) + '-Windows-v' + version + '.zip')
     files = [exe, setup, output / '使用说明.txt', output / '版本信息.json']
+    if update_notes.exists():
+        files.append(output / '更新说明.txt')
     with ZipFile(archive, 'w', ZIP_DEFLATED) as z:
         for file in files:
             z.write(file, file.name)
